@@ -23,4 +23,6 @@ type KeyPair interface {
 	TLSCertificate() tls.Certificate
 	Base64Encode() string
 	Base64Decode(string)
+	CertificatePEM()[]byte
+	KeyPEM()[]byte
 }
