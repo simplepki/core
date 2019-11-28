@@ -6,7 +6,7 @@ type CreateCertificateAuthorityEvent struct {
 	Account string `json:"account"`
 }
 
-type CreateIntermediateEvent struct {
+type CreateIntermediateAuthorityEvent struct {
 	Token string `json:"token"`
 	CAName    string `json:"ca_name"`
 	InterName string `json:"intermediate_name"`
@@ -19,6 +19,11 @@ type SignCertificateEvent struct {
 	CertName string `json:"cert_name"`
 	Account string `json:"account"`
 	CSR string `json:"csr"`
+}
+
+type ReturnCertificateEvent struct {
+	Cert  string   `json:"cert"`
+	Chain []string `json:"chain"`
 }
 
 type CreateCredentialsEvent struct {
