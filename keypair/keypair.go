@@ -18,6 +18,9 @@ func NewKeyPair(selector string) KeyPair {
 
 type KeyPair interface {
 	GetCertificate() *x509.Certificate
+	GetCertificateChain() []*x509.Certificate
+	ImportCertificate([]byte) error
+	ImportCertificateChain([][]byte) error
 	CreateCSR(pkix.Name, []string) *x509.CertificateRequest
 	IssueCertificate(*x509.Certificate) *x509.Certificate
 	TLSCertificate() tls.Certificate

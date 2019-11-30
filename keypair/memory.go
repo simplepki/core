@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"log"
 	"net/url"
@@ -18,6 +19,7 @@ import (
 type InMemoryKP struct {
 	PrivateKey  *rsa.PrivateKey
 	Certificate *x509.Certificate
+	Chain []*x509.Certificate
 }
 
 type inMemoryMarshaller struct {
@@ -39,6 +41,43 @@ func NewInMemoryKP() *InMemoryKP {
 
 func (mem *InMemoryKP) GetCertificate() *x509.Certificate {
 	return mem.Certificate
+}
+
+func (mem *InMemoryKP) GetCertificateChain() []*x509.Certificate {
+	return mem.Chain
+}
+
+func (mem *InMemoryKP) ImportCertificate(pemBytes []byte) error {
+	block, _ := pem.Decode(pemBytes)
+	if block == nil || block.Type != "CERTIFICATE" {
+		return errors.New("Import fail for non-certificate pem")
+	}
+
+	mem.Certificate, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (mem *InMemoryKP) ImportCertificateChain(pemList [][]byte) error {
+	mem.Chain = []*x509.Certificate{}
+	for _, pemBytes := range pemList {
+		block, _ := pem.Decode(pemBytes)
+		if block == nil || block.Type != "CERTIFICATE" {
+			return errors.New("Import fail for non-certificate pem")
+		}
+
+		cert, err := x509.ParsePKIXPublicKey(block.Bytes)
+		if err != nil {
+			return err
+		}
+
+		mem.Chain = append(mem.chain, cert)
+	}
+
+	return nil
 }
 
 func (mem *InMemoryKP) CreateCSR(subj pkix.Name, dns []string) *x509.CertificateRequest {
