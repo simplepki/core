@@ -39,28 +39,37 @@ func NewInMemoryKP() *InMemoryKP {
 	}
 }
 
+// GetCertificate returns the Certificate help in the InMemoryKP
 func (mem *InMemoryKP) GetCertificate() *x509.Certificate {
 	return mem.Certificate
 }
 
+// GetCertificateChain returns the Certificate Authority
+// chain for this signed certificate
 func (mem *InMemoryKP) GetCertificateChain() []*x509.Certificate {
 	return mem.Chain
 }
 
+// ImportCertificate takes a PEM encoded certificate and adds it to the
+// InMemoryKP
 func (mem *InMemoryKP) ImportCertificate(pemBytes []byte) error {
 	block, _ := pem.Decode(pemBytes)
 	if block == nil || block.Type != "CERTIFICATE" {
 		return errors.New("Import fail for non-certificate pem")
 	}
 
-	mem.Certificate, err := x509.ParsePKIXPublicKey(block.Bytes)
+	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
+		log.Println("Error parsing imported certificate: ", err.Error())
 		return err
 	}
 
+	mem.Certificate = cert
 	return nil
 }
 
+// ImportCertificateChain takes a list of PEM encoded certificates, decodes them,
+// and adds them to the InMemoryKP to be used for generating TLS
 func (mem *InMemoryKP) ImportCertificateChain(pemList [][]byte) error {
 	mem.Chain = []*x509.Certificate{}
 	for _, pemBytes := range pemList {
@@ -69,17 +78,20 @@ func (mem *InMemoryKP) ImportCertificateChain(pemList [][]byte) error {
 			return errors.New("Import fail for non-certificate pem")
 		}
 
-		cert, err := x509.ParsePKIXPublicKey(block.Bytes)
+		cert, err := x509.ParseCertificate(block.Bytes)
 		if err != nil {
+			log.Println("Error parsing certificate: ", err.Error())
 			return err
 		}
 
-		mem.Chain = append(mem.chain, cert)
+		mem.Chain = append(mem.Chain, cert)
 	}
 
 	return nil
 }
 
+// CreateCSR generates a bland Certificate Signing Request with the given
+// PKI name and DNS strings (SANs) to be added 
 func (mem *InMemoryKP) CreateCSR(subj pkix.Name, dns []string) *x509.CertificateRequest {
 	uri, err := url.Parse(subj.CommonName)
 	if err != nil {
@@ -112,6 +124,8 @@ func (mem *InMemoryKP) CreateCSR(subj pkix.Name, dns []string) *x509.Certificate
 	return csr
 }
 
+// IssueCertificate takes in and signs CSR with the private key in the 
+// InMemoryKP
 func (mem *InMemoryKP) IssueCertificate(certTemplate *x509.Certificate) *x509.Certificate {
 
 	der, err := x509.CreateCertificate(rand.Reader, certTemplate, mem.Certificate, certTemplate.PublicKey, mem.PrivateKey)

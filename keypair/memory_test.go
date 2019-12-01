@@ -12,6 +12,15 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestInMemoryKPAssertion(t *testing.T) {
+	inmem := NewInMemoryKP()
+	var kp  interface{} = inmem
+	_, ok := kp.(KeyPair)
+	if !ok {
+		t.Fatal("InMemoryKP doesnt fullfil KeyPair")
+	}
+}
+
 func TestNewInMemoryKP(t *testing.T) {
 	kp := NewInMemoryKP()
 	t.Log("in memory kp: ", kp)
