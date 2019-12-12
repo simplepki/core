@@ -12,8 +12,11 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/url"
 	"os"
+	"regexp"
+	"strings"
 )
 
 type InMemoryKP struct {
@@ -92,7 +95,7 @@ func (mem *InMemoryKP) ImportCertificateChain(pemList [][]byte) error {
 
 // CreateCSR generates a bland Certificate Signing Request with the given
 // PKI name and DNS strings (SANs) to be added 
-func (mem *InMemoryKP) CreateCSR(subj pkix.Name, dns []string) *x509.CertificateRequest {
+func (mem *InMemoryKP) CreateCSR(subj pkix.Name, altNames []string) *x509.CertificateRequest {
 	uri, err := url.Parse(subj.CommonName)
 	if err != nil {
 		log.Fatal("error parsing csr uri: ", err)
@@ -103,10 +106,28 @@ func (mem *InMemoryKP) CreateCSR(subj pkix.Name, dns []string) *x509.Certificate
 	uris := make([]*url.URL,1)
 	uris[0] = uri
 
+	// parse DNS/IP address/email address from altNames
+	dns := []string{}
+	ipAddr := []net.IP{}
+	emailAddr := []string{}
+	for _, name := range altNames {
+		if net.ParseIP(name) != nil {
+			ipAddr = append(ipAddr, net.ParseIP(name))
+		} else if strings.Contains(name, "@") {
+			emailAddr = append(emailAddr, name)
+		} else if match, err := regexp.MatchString(`[a-zA-Z0-9\-]+`, name); err == nil && match {
+			dns = append(dns, name)
+		}
+
+
+	}
+
 	der, err := x509.CreateCertificateRequest(rand.Reader,
 		&x509.CertificateRequest{
 			Subject:  subj,
 			DNSNames: dns,
+			IPAddresses: ipAddr,
+			EmailAddresses: emailAddr,
 			URIs:     uris,
 		},
 		mem.PrivateKey)
