@@ -115,11 +115,9 @@ func (mem *InMemoryKP) CreateCSR(subj pkix.Name, altNames []string) *x509.Certif
 			ipAddr = append(ipAddr, net.ParseIP(name))
 		} else if strings.Contains(name, "@") {
 			emailAddr = append(emailAddr, name)
-		} else if match, err := regexp.MatchString(`[a-zA-Z0-9\-]+`, name); err == nil && match {
+		} else if match, err := regexp.MatchString(`[a-zA-Z0-9\-\.]+`, name); err == nil && match {
 			dns = append(dns, name)
 		}
-
-
 	}
 
 	der, err := x509.CreateCertificateRequest(rand.Reader,
