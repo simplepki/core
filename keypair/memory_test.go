@@ -173,7 +173,7 @@ func TestInMemoryMTLS(t *testing.T) {
 	serverName := pkix.Name{
 		CommonName: "localhost",
 	}
-	serverCsr := serverCert.CreateCSR(serverName, []string{"localhost"})
+	serverCsr := serverCert.CreateCSR(serverName, []string{"localhost", "127.0.0.1"})
 	serverTemp := CsrToCert(serverCsr)
 	serverCert.Certificate = ca.IssueCertificate(serverTemp)
 	t.Log("in memory server cert created")
@@ -235,6 +235,21 @@ func TestInMemoryMTLS(t *testing.T) {
 
 	msg, err := ioutil.ReadAll(resp.Body)
 	resp.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if string(msg) != "ok" {
+		t.Fatal("failed to connect to server")
+	}
+
+	resp2, err := client.Get("https://127.0.0.1:8443/")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	msg, err = ioutil.ReadAll(resp2.Body)
+	resp2.Body.Close()
 	if err != nil {
 		t.Fatal(err)
 	}
