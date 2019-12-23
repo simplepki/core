@@ -39,3 +39,8 @@ type AuthorizeCredentialsEvent struct {
 	Resource string `json:"resource"`
 }
 
+type LambdaError struct {
+	Message	string `json:"errorMessage"`
+	Type 	string `json:"errorType"`
+}
+
