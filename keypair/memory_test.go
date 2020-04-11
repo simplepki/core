@@ -13,8 +13,8 @@ import (
 )
 
 func TestInMemoryKPAssertion(t *testing.T) {
-	inmem := NewInMemoryKP()
-	var kp  interface{} = inmem
+	inmem, _ := NewInMemoryKP(nil)
+	var kp interface{} = inmem
 	_, ok := kp.(KeyPair)
 	if !ok {
 		t.Fatal("InMemoryKP doesnt fullfil KeyPair")
@@ -22,7 +22,7 @@ func TestInMemoryKPAssertion(t *testing.T) {
 }
 
 func TestNewInMemoryKP(t *testing.T) {
-	kp := NewInMemoryKP()
+	kp, _ := NewInMemoryKP(nil)
 	t.Log("in memory kp: ", kp)
 
 	csr := kp.CreateCSR(pkix.Name{}, []string{})
@@ -30,7 +30,7 @@ func TestNewInMemoryKP(t *testing.T) {
 }
 
 func TestInMemorySelfSigned(t *testing.T) {
-	kp := NewInMemoryKP()
+	kp, _ := NewInMemoryKP(nil)
 
 	csr := kp.CreateCSR(pkix.Name{}, []string{})
 
@@ -49,14 +49,14 @@ func TestInMemorySelfSigned(t *testing.T) {
 
 func TestInMemoryCA(t *testing.T) {
 	t.Log("generating ca")
-	ca := NewInMemoryKP()
+	ca, _ := NewInMemoryKP(nil)
 	caCsr := ca.CreateCSR(pkix.Name{}, []string{})
 	caCertTemp := CsrToCACert(caCsr)
 	ca.Certificate = caCertTemp
 	ca.IssueCertificate(caCertTemp)
 	assert.Equal(t, true, ca.Certificate.IsCA, "ca should be the ca")
 
-	cert1 := NewInMemoryKP()
+	cert1, _ := NewInMemoryKP(nil)
 	cert1Csr := cert1.CreateCSR(pkix.Name{}, []string{})
 	cert1Temp := CsrToCert(cert1Csr)
 	t.Log("cert1 kp and csr/template created")
@@ -71,7 +71,7 @@ func TestInMemoryCA(t *testing.T) {
 
 	t.Log("verified cert1 signed by the ca")
 
-	cert2 := NewInMemoryKP()
+	cert2, _ := NewInMemoryKP(nil)
 	cert2Csr := cert2.CreateCSR(pkix.Name{}, []string{})
 	cert2Temp := CsrToCert(cert2Csr)
 	t.Log("cert2 kp and csr/template created")
@@ -95,14 +95,14 @@ func TestInMemoryCA(t *testing.T) {
 }
 
 func TestInMemoryCAandIntermediate(t *testing.T) {
-	ca := NewInMemoryKP()
+	ca, _ := NewInMemoryKP(nil)
 	caCsr := ca.CreateCSR(pkix.Name{}, []string{})
 	caTemp := CsrToCACert(caCsr)
 	ca.Certificate = caTemp
 	ca.Certificate = ca.IssueCertificate(caTemp)
 	t.Log("in memory ca created")
 
-	inter := NewInMemoryKP()
+	inter, _ := NewInMemoryKP(nil)
 	interCsr := inter.CreateCSR(pkix.Name{}, []string{})
 	interTemp := CsrToCACert(interCsr)
 	inter.Certificate = ca.IssueCertificate(interTemp)
@@ -115,7 +115,7 @@ func TestInMemoryCAandIntermediate(t *testing.T) {
 		t.Fatal("intermediate not properly signed by ca: ", err)
 	}
 
-	cert1 := NewInMemoryKP()
+	cert1, _ := NewInMemoryKP(nil)
 	cert1Csr := cert1.CreateCSR(pkix.Name{}, []string{})
 	cert1Temp := CsrToCert(cert1Csr)
 	cert1.Certificate = inter.IssueCertificate(cert1Temp)
@@ -150,7 +150,7 @@ func TestInMemoryCAandIntermediate(t *testing.T) {
 }
 
 func TestInMemoryMTLS(t *testing.T) {
-	ca := NewInMemoryKP()
+	ca, _ := NewInMemoryKP(nil)
 	caName := pkix.Name{
 		CommonName: "test-ca",
 	}
@@ -160,7 +160,7 @@ func TestInMemoryMTLS(t *testing.T) {
 	ca.Certificate = ca.IssueCertificate(caTemp)
 	t.Log("in memory ca created")
 
-	clientCert := NewInMemoryKP()
+	clientCert, _ := NewInMemoryKP(nil)
 	clientName := pkix.Name{
 		CommonName: "test-client",
 	}
@@ -169,7 +169,7 @@ func TestInMemoryMTLS(t *testing.T) {
 	clientCert.Certificate = ca.IssueCertificate(clientTemp)
 	t.Log("in memory client cert created")
 
-	serverCert := NewInMemoryKP()
+	serverCert, _ := NewInMemoryKP(nil)
 	serverName := pkix.Name{
 		CommonName: "localhost",
 	}
@@ -261,7 +261,7 @@ func TestInMemoryMTLS(t *testing.T) {
 }
 
 func TestB64Marshalling(t *testing.T) {
-	ca := NewInMemoryKP()
+	ca, _ := NewInMemoryKP(nil)
 	caName := pkix.Name{
 		CommonName: "test-ca",
 	}
@@ -271,7 +271,7 @@ func TestB64Marshalling(t *testing.T) {
 	ca.Certificate = ca.IssueCertificate(caTemp)
 	t.Log("in memory ca created")
 
-	kp := NewInMemoryKP()
+	kp, _ := NewInMemoryKP(nil)
 	csr := kp.CreateCSR(pkix.Name{}, []string{})
 	kpCert := CsrToCert(csr)
 	kp.Certificate = ca.IssueCertificate(kpCert)

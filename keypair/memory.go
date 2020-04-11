@@ -10,11 +10,9 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
-	"fmt"
 	"log"
 	"net"
 	"net/url"
-	"os"
 	"regexp"
 	"strings"
 )
@@ -22,24 +20,26 @@ import (
 type InMemoryKP struct {
 	PrivateKey  *rsa.PrivateKey
 	Certificate *x509.Certificate
-	Chain []*x509.Certificate
+	Chain       []*x509.Certificate
 }
+
+type InMemoryKeyPairConfig struct{}
 
 type inMemoryMarshaller struct {
 	Cert string
 	Key  string
 }
 
-func NewInMemoryKP() *InMemoryKP {
+func NewInMemoryKP(c *InMemoryKeyPairConfig) (*InMemoryKP, error) {
 
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 
 	return &InMemoryKP{
 		PrivateKey: privateKey,
-	}
+	}, nil
 }
 
 // GetCertificate returns the Certificate help in the InMemoryKP
@@ -94,16 +94,16 @@ func (mem *InMemoryKP) ImportCertificateChain(pemList [][]byte) error {
 }
 
 // CreateCSR generates a bland Certificate Signing Request with the given
-// PKI name and DNS strings (SANs) to be added 
+// PKI name and DNS strings (SANs) to be added
 func (mem *InMemoryKP) CreateCSR(subj pkix.Name, altNames []string) *x509.CertificateRequest {
 	uri, err := url.Parse(subj.CommonName)
 	if err != nil {
 		log.Fatal("error parsing csr uri: ", err)
 	}
-	
+
 	log.Printf("creating csr with uri: %#v\n", uri)
 
-	uris := make([]*url.URL,1)
+	uris := make([]*url.URL, 1)
 	uris[0] = uri
 
 	// parse DNS/IP address/email address from altNames
@@ -122,11 +122,11 @@ func (mem *InMemoryKP) CreateCSR(subj pkix.Name, altNames []string) *x509.Certif
 
 	der, err := x509.CreateCertificateRequest(rand.Reader,
 		&x509.CertificateRequest{
-			Subject:  subj,
-			DNSNames: dns,
-			IPAddresses: ipAddr,
+			Subject:        subj,
+			DNSNames:       dns,
+			IPAddresses:    ipAddr,
 			EmailAddresses: emailAddr,
-			URIs:     uris,
+			URIs:           uris,
 		},
 		mem.PrivateKey)
 	if err != nil {
@@ -143,7 +143,7 @@ func (mem *InMemoryKP) CreateCSR(subj pkix.Name, altNames []string) *x509.Certif
 	return csr
 }
 
-// IssueCertificate takes in and signs CSR with the private key in the 
+// IssueCertificate takes in and signs CSR with the private key in the
 // InMemoryKP
 func (mem *InMemoryKP) IssueCertificate(certTemplate *x509.Certificate) *x509.Certificate {
 
@@ -151,8 +151,6 @@ func (mem *InMemoryKP) IssueCertificate(certTemplate *x509.Certificate) *x509.Ce
 	if err != nil {
 		log.Fatal(err)
 	}
-
-
 
 	signedCert, err := x509.ParseCertificate(der)
 	if err != nil {
@@ -194,29 +192,18 @@ func (mem *InMemoryKP) KeyPEM() []byte {
 	})
 }
 
-func (mem *InMemoryKP) ToFile(name string) {
-	certOut, err := os.Create(fmt.Sprintf("%s.pem", name))
-	if err != nil {
-		log.Fatal(err)
+func (mem *InMemoryKP) ChainPEM() [][]byte {
+	chainBytes := [][]byte{}
+
+	for _, chainCert := range mem.Chain {
+		chainBytes = append(chainBytes,
+			pem.EncodeToMemory(&pem.Block{
+				Type:  "CERTIFICATE",
+				Bytes: chainCert.Raw,
+			}))
 	}
-	pem.Encode(certOut, &pem.Block{
-		Type:  "CERTIFICATE",
-		Bytes: mem.Certificate.Raw,
-	})
-	certOut.Close()
 
-	keyOut, err := os.OpenFile(fmt.Sprintf("%s.key", name), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
-	if err != nil {
-		log.Fatal(err)
-	}
-	keyB := x509.MarshalPKCS1PrivateKey(mem.PrivateKey)
-
-	pem.Encode(keyOut, &pem.Block{
-		Type:  "RSA PRIVATE KEY",
-		Bytes: keyB,
-	})
-	keyOut.Close()
-
+	return chainBytes
 }
 
 func (mem *InMemoryKP) Base64Encode() string {

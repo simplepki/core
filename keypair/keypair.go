@@ -6,12 +6,28 @@ import (
 	"crypto/x509/pkix"
 )
 
-func NewKeyPair(selector string) KeyPair {
-	switch selector {
-	case "memory":
-		return NewInMemoryKP()
+type KEY_PAIR_TYPE = uint8
+
+const (
+	IN_MEMORY KEY_PAIR_TYPE = iota
+	FILE_SYSTEM
+	YUBIKEY
+)
+
+type KeyPairConfig struct {
+	KeyPairType      KEY_PAIR_TYPE
+	InMemoryConfig   *InMemoryKeyPairConfig
+	FileSystemConfig *FileSystemKeyPairConfig
+}
+
+func NewKeyPair(config *KeyPairConfig) (KeyPair, error) {
+	switch config.KeyPairType {
+	case IN_MEMORY:
+		return NewInMemoryKP(config.InMemoryConfig)
+	case FILE_SYSTEM:
+		return NewFileSystemKP(config.FileSystemConfig)
 	default:
-		return NewInMemoryKP()
+		return NewInMemoryKP(config.InMemoryConfig)
 
 	}
 }
@@ -26,6 +42,7 @@ type KeyPair interface {
 	TLSCertificate() tls.Certificate
 	Base64Encode() string
 	Base64Decode(string)
-	CertificatePEM()[]byte
-	KeyPEM()[]byte
+	CertificatePEM() []byte
+	KeyPEM() []byte
+	ChainPEM() [][]byte
 }
