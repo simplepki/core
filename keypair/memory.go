@@ -23,23 +23,25 @@ type InMemoryKP struct {
 	Chain       []*x509.Certificate
 }
 
-type InMemoryKeyPairConfig struct{}
+type InMemoryKeyPairConfig struct {}
 
 type inMemoryMarshaller struct {
 	Cert string
 	Key  string
 }
 
-func NewInMemoryKP(c *InMemoryKeyPairConfig) (*InMemoryKP, error) {
-
+func (mem *InMemoryKP) New(config *KeyPairConfig) error {
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	return &InMemoryKP{
-		PrivateKey: privateKey,
-	}, nil
+	mem.PrivateKey = privateKey
+	return nil
+}
+
+func (mem *InMemoryKP) Load(config *KeyPairConfig) error {
+	return mem.New(config)
 }
 
 // GetCertificate returns the Certificate help in the InMemoryKP

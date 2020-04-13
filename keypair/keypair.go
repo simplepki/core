@@ -6,33 +6,64 @@ import (
 	"crypto/x509/pkix"
 )
 
-type KEY_PAIR_TYPE = uint8
+type KeyPairType = uint8
 
 const (
-	IN_MEMORY KEY_PAIR_TYPE = iota
-	FILE_SYSTEM
-	YUBIKEY
+	InMemory KeyPairType = iota
+	FileSystem
+	Yubikey
 )
 
 type KeyPairConfig struct {
-	KeyPairType      KEY_PAIR_TYPE
+	KeyPairType      KeyPairType
 	InMemoryConfig   *InMemoryKeyPairConfig
 	FileSystemConfig *FileSystemKeyPairConfig
+	CommonName string
 }
 
 func NewKeyPair(config *KeyPairConfig) (KeyPair, error) {
 	switch config.KeyPairType {
-	case IN_MEMORY:
-		return NewInMemoryKP(config.InMemoryConfig)
-	case FILE_SYSTEM:
-		return NewFileSystemKP(config.FileSystemConfig)
+	case InMemory:
+		kp := &InMemoryKP{}
+		err := kp.New(config)
+		return kp, err
+	case FileSystem:
+		kp := &FileSystemKP{}
+		err := kp.New(config)
+		return kp, err
+	case Yubikey:
+		kp := &YubikeyKP{}
+		err := kp.New(config)
+		return kp, err
 	default:
-		return NewInMemoryKP(config.InMemoryConfig)
+		return	nil, nil
+
+	}
+}
+
+func LoadKeyPair(config *KeyPairConfig) (KeyPair, error) {
+	switch config.KeyPairType {
+	case InMemory:
+		kp := &InMemoryKP{}
+		err := kp.Load(config)
+		return kp, err
+	case FileSystem:
+		kp := &FileSystemKP{}
+		err := kp.Load(config)
+		return kp, err
+	case Yubikey:
+		kp := &YubikeyKP{}
+		err := kp.Load(config)
+		return kp, err
+	default:
+		return	nil, nil
 
 	}
 }
 
 type KeyPair interface {
+	New(*KeyPairConfig) error
+	Load(*KeyPairConfig) error
 	GetCertificate() *x509.Certificate
 	GetCertificateChain() []*x509.Certificate
 	ImportCertificate([]byte) error
