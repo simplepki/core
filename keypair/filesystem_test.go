@@ -10,7 +10,10 @@ func TestToFile(t *testing.T) {
 		Location: []string{"/tmp/test1.pki"},
 	}
 
-	kp, err := NewFileSystemKP(config)
+	kp := &FileSystemKP{}
+	err := kp.New(&KeyPairConfig{
+		FileSystemConfig: config,
+	})
 
 	if err != nil {
 		t.Fatal(err.Error())
@@ -29,13 +32,18 @@ func TestFromFile(t *testing.T) {
 		Location: []string{"/tmp/test2.pki"},
 	}
 
-	kp1, err := NewFileSystemKP(config)
+	metaConfig := &KeyPairConfig{
+		FileSystemConfig: config,
+	}
 
+	kp1 := &FileSystemKP{}
+	err := kp1.New(metaConfig)
 	if err != nil {
 		t.Fatal(err.Error())
 	}
 
-	kp2, err := NewFileSystemKP(config)
+	kp2 := &FileSystemKP{}
+	err = kp2.Load(metaConfig)
 	if err != nil {
 		t.Fatal(err.Error())
 	}
@@ -67,7 +75,10 @@ func TestMultipleToFile(t *testing.T) {
 		},
 	}
 
-	kp, err := NewFileSystemKP(config)
+	kp := FileSystemKP{}
+	err := kp.New(&KeyPairConfig{
+		FileSystemConfig: config,
+	})
 
 	if err != nil {
 		t.Fatal(err.Error())

@@ -1,43 +1,54 @@
 package keypair
 
 import (
-	"log"
-	"errors"
+	"crypto"
+	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"errors"
+	"net"
+	"net/url"
+	"regexp"
 	"strings"
+
 	"github.com/jtaylorcpp/piv-go/piv"
+	log "github.com/sirupsen/logrus"
 )
 
-type YubikeyKP struct{
-	Config *YubikeyKeyPairConfig
+type YubikeyKP struct {
+	Config  *YubikeyKeyPairConfig
 	Yubikey *piv.YubiKey
+	PubKey  crypto.PublicKey
+	PrivKey crypto.PrivateKey
 }
 
-type YubikeyKeyPairConfig struct{
-	CertSubjectName string
-	Name *string
-	Serial *uint32
-	PIN *string
-	PUK *string
+type YubikeyKeyPairConfig struct {
+	CertSubjectName     string
+	Reset               bool
+	Name                *string
+	Serial              *uint32
+	PIN                 *string
+	PUK                 *string
 	Base64ManagementKey *string
-	managementKey []byte
+	managementKey       [24]byte
 }
 
-func(y *YubikeyKeyPairConfig) parseAndGetDefaults() error {
+func (y *YubikeyKeyPairConfig) parseAndGetDefaults() error {
 	if y.PIN == nil {
-		y.PIN = piv.DefaultPIN
+		defPin := piv.DefaultPIN
+		y.PIN = &defPin
 	}
 
 	if y.PUK == nil {
-		y.PUK = piv.DefaultPUK
+		defPuk := piv.DefaultPUK
+		y.PUK = &defPuk
 	}
 
 	if y.Base64ManagementKey == nil {
 		y.managementKey = piv.DefaultManagementKey
 	} else {
-		// 
+		//
 	}
 
 	return nil
@@ -71,9 +82,11 @@ func getAllYubikeys() (map[uint32]string, error) {
 	return yubis, nil
 }
 
-func NewYubikeyKP(config *YubikeyKeyPairConfig) (*YubikeyKP, error) {
-	availableYubis,_ := getAllYubikeys()
-	log.Printf("currently available yubikeys: %#v\n", availableYubis)
+func getYubikey(config *YubikeyKeyPairConfig) (*piv.YubiKey, error) {
+	availableYubis, err := getAllYubikeys()
+	if err != nil {
+		return nil, err
+	}
 	if config.Serial != nil {
 		if name, ok := availableYubis[*config.Serial]; ok {
 			yk, err := piv.Open(name)
@@ -88,12 +101,7 @@ func NewYubikeyKP(config *YubikeyKeyPairConfig) (*YubikeyKP, error) {
 			}
 			log.Printf("opened and using yubikey %s with serial %v\n", name, serial)
 
-			ykKP := &YubikeyKP{
-				Config: config,
-				Yubikey: yk,
-			}
-
-			return ykKP, nil
+			return yk, nil
 
 		} else {
 			return nil, errors.New("serial for yubikey provided is not available")
@@ -108,41 +116,70 @@ func NewYubikeyKP(config *YubikeyKeyPairConfig) (*YubikeyKP, error) {
 					return nil, errors.New("unable to open yubikey with name provided")
 				}
 
-				ykKP := &YubikeyKP{
-					Config: config,
-					Yubikey: yk,
-				}
-
-				return ykKP, nil
+				return yk, nil
 			}
 		}
 
 		return nil, errors.New("no yubikey available for provided name")
 	} else {
 		// open and use first one that doesnt error
-		for serial, name  := range availableYubis {
+		for serial, name := range availableYubis {
 			yk, err := piv.Open(name)
 			if err != nil {
 				log.Printf("unable to open yubikey <%s,%v>\n", name, serial)
 				continue
 			}
 
-			ykKP := &YubikeyKP{
-				Config: config,
-				Yubikey: yk,
-			}
-
-			return ykKP, nil
+			return yk, nil
 		}
 
 		return nil, errors.New("no yubikeys available")
 	}
-
-
-	return nil, nil
 }
 
-func (y *Yubikey) 
+func (y *YubikeyKP) New(config *KeyPairConfig) error {
+	config.YubikeyConfig.parseAndGetDefaults()
+	var err error = nil
+	y.Yubikey, err = getYubikey(config.YubikeyConfig)
+	if err != nil {
+		return err
+	}
+	if config.YubikeyConfig != nil {
+		if config.YubikeyConfig.Reset {
+			if err := y.Yubikey.Reset(); err != nil {
+				log.Println("unable to reset yubikey")
+				return err
+			}
+		}
+	}
+
+	keyOpts := piv.Key{
+		Algorithm:   piv.AlgorithmRSA2048,
+		PINPolicy:   piv.PINPolicyNever,
+		TouchPolicy: piv.TouchPolicyNever,
+	}
+
+	pub, err := y.Yubikey.GenerateKey(
+		config.YubikeyConfig.managementKey,
+		piv.SlotAuthentication,
+		keyOpts)
+
+	if err != nil {
+		return err
+	}
+
+	y.PubKey = pub
+
+	auth := piv.KeyAuth{PIN: *config.YubikeyConfig.PIN}
+	priv, err := y.Yubikey.PrivateKey(piv.SlotAuthentication, pub, auth)
+	if err != nil {
+		return err
+	}
+
+	y.PrivKey = priv
+
+	return nil
+}
 
 func (y *YubikeyKP) GetCertificate() *x509.Certificate {
 	return nil
@@ -152,20 +189,103 @@ func (y *YubikeyKP) GetCertificateChain() []*x509.Certificate {
 	return []*x509.Certificate{}
 }
 
-func (y *YubikeyKP) ImportCertificate(certBytes []byte) error {
+func (y *YubikeyKP) ImportCertificate(bytes []byte) error {
+
+	cert, err := x509.ParseCertificate(bytes)
+	if err != nil {
+		log.Println("Error parsing imported certificate: ", err.Error())
+		return err
+	}
+
+	err = y.Yubikey.SetCertificate(y.Config.managementKey, piv.SlotAuthentication, cert)
+	if err != nil {
+		return err
+	}
 	return nil
+}
+
+func (y *YubikeyKP) importCert(cert *x509.Certificate) {
+	log.Printf("import cert: %#v\n", *cert)
+	err := y.Yubikey.SetCertificate(y.Config.managementKey, piv.SlotAuthentication, cert)
+	if err != nil {
+		panic(err)
+	}
 }
 
 func (y *YubikeyKP) ImportCertificateChain(chainBytes [][]byte) error {
 	return nil
 }
 
-func (y *YubikeyKP) CreateCSR(name pkix.Name, altNames []string) *x509.CertificateRequest {
-	return nil
+func (y *YubikeyKP) CreateCSR(subj pkix.Name, altNames []string) *x509.CertificateRequest {
+	uri, err := url.Parse(subj.CommonName)
+	if err != nil {
+		log.Fatal("error parsing csr uri: ", err)
+	}
+
+	log.Printf("creating csr with uri: %#v\n", uri)
+
+	uris := make([]*url.URL, 1)
+	uris[0] = uri
+
+	// parse DNS/IP address/email address from altNames
+	dns := []string{}
+	ipAddr := []net.IP{}
+	emailAddr := []string{}
+	for _, name := range altNames {
+		if net.ParseIP(name) != nil {
+			ipAddr = append(ipAddr, net.ParseIP(name))
+		} else if strings.Contains(name, "@") {
+			emailAddr = append(emailAddr, name)
+		} else if match, err := regexp.MatchString(`[a-zA-Z0-9\-\.]+`, name); err == nil && match {
+			dns = append(dns, name)
+		}
+	}
+
+	der, err := x509.CreateCertificateRequest(rand.Reader,
+		&x509.CertificateRequest{
+			Subject:        subj,
+			DNSNames:       dns,
+			IPAddresses:    ipAddr,
+			EmailAddresses: emailAddr,
+			URIs:           uris,
+		},
+		y.PrivKey)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	csr, err := x509.ParseCertificateRequest(der)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	log.Printf("csr uri: %#v\n", csr.URIs)
+
+	return csr
 }
 
 func (y *YubikeyKP) IssueCertificate(inCert *x509.Certificate) *x509.Certificate {
-	return nil
+	yCert, err := y.Yubikey.Certificate(piv.SlotAuthentication)
+	if err != nil {
+		log.Printf(err.Error())
+		return nil
+	}
+	der, err := x509.CreateCertificate(rand.Reader, inCert, yCert, inCert.PublicKey, y.PrivKey)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	signedCert, err := x509.ParseCertificate(der)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	log.Printf("template uris: %#v\n", inCert.URIs)
+	log.Printf("signing uri: %#v\n", yCert.URIs)
+
+	log.Printf("signed certificate with uris: %#v\n", signedCert.URIs)
+
+	return signedCert
 }
 
 func (y *YubikeyKP) TLSCertificate() tls.Certificate {

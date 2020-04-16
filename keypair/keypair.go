@@ -18,10 +18,11 @@ type KeyPairConfig struct {
 	KeyPairType      KeyPairType
 	InMemoryConfig   *InMemoryKeyPairConfig
 	FileSystemConfig *FileSystemKeyPairConfig
+	//YubikeyConfig    *YubikeyKeyPairConfig
 	CommonName string
 }
 
-func NewKeyPair(config *KeyPairConfig) (KeyPair, error) {
+/*func NewKeyPair(config *KeyPairConfig) (KeyPair, error) {
 	switch config.KeyPairType {
 	case InMemory:
 		kp := &InMemoryKP{}
@@ -32,16 +33,16 @@ func NewKeyPair(config *KeyPairConfig) (KeyPair, error) {
 		err := kp.New(config)
 		return kp, err
 	case Yubikey:
-		kp := &YubikeyKP{}
-		err := kp.New(config)
-		return kp, err
+	kp := &YubikeyKP{}
+	err := kp.New(config)
+	return kp, err
 	default:
-		return	nil, nil
+		return nil, nil
 
 	}
-}
+}*/
 
-func LoadKeyPair(config *KeyPairConfig) (KeyPair, error) {
+/*func LoadKeyPair(config *KeyPairConfig) (KeyPair, error) {
 	switch config.KeyPairType {
 	case InMemory:
 		kp := &InMemoryKP{}
@@ -56,21 +57,21 @@ func LoadKeyPair(config *KeyPairConfig) (KeyPair, error) {
 		err := kp.Load(config)
 		return kp, err
 	default:
-		return	nil, nil
+		return nil, nil
 
 	}
-}
+}*/
 
 type KeyPair interface {
 	New(*KeyPairConfig) error
 	Load(*KeyPairConfig) error
 	GetCertificate() *x509.Certificate
 	GetCertificateChain() []*x509.Certificate
-	ImportCertificate([]byte) error
-	ImportCertificateChain([][]byte) error
-	CreateCSR(pkix.Name, []string) *x509.CertificateRequest
-	IssueCertificate(*x509.Certificate) *x509.Certificate
-	TLSCertificate() tls.Certificate
+	ImportCertificate(derBytes []byte) error
+	ImportCertificateChain(listDerBytes [][]byte) error
+	CreateCSR(pkix.Name, []string) (derCSR []byte, err error)
+	IssueCertificate(csr *x509.CertificateRequest, isCA bool, isSelfSigned bool) (derBytes []byte, err error)
+	TLSCertificate() (tls.Certificate, error)
 	Base64Encode() string
 	Base64Decode(string)
 	CertificatePEM() []byte

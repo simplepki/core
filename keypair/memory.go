@@ -23,11 +23,12 @@ type InMemoryKP struct {
 	Chain       []*x509.Certificate
 }
 
-type InMemoryKeyPairConfig struct {}
+type InMemoryKeyPairConfig struct{}
 
 type inMemoryMarshaller struct {
-	Cert string
-	Key  string
+	Cert  string
+	Key   string
+	Chain []string
 }
 
 func (mem *InMemoryKP) New(config *KeyPairConfig) error {
@@ -57,13 +58,8 @@ func (mem *InMemoryKP) GetCertificateChain() []*x509.Certificate {
 
 // ImportCertificate takes a PEM encoded certificate and adds it to the
 // InMemoryKP
-func (mem *InMemoryKP) ImportCertificate(pemBytes []byte) error {
-	block, _ := pem.Decode(pemBytes)
-	if block == nil || block.Type != "CERTIFICATE" {
-		return errors.New("Import fail for non-certificate pem")
-	}
-
-	cert, err := x509.ParseCertificate(block.Bytes)
+func (mem *InMemoryKP) ImportCertificate(derBytes []byte) error {
+	cert, err := x509.ParseCertificate(derBytes)
 	if err != nil {
 		log.Println("Error parsing imported certificate: ", err.Error())
 		return err
@@ -97,10 +93,10 @@ func (mem *InMemoryKP) ImportCertificateChain(pemList [][]byte) error {
 
 // CreateCSR generates a bland Certificate Signing Request with the given
 // PKI name and DNS strings (SANs) to be added
-func (mem *InMemoryKP) CreateCSR(subj pkix.Name, altNames []string) *x509.CertificateRequest {
+func (mem *InMemoryKP) CreateCSR(subj pkix.Name, altNames []string) ([]byte, error) {
 	uri, err := url.Parse(subj.CommonName)
 	if err != nil {
-		log.Fatal("error parsing csr uri: ", err)
+		return []byte{}, err
 	}
 
 	log.Printf("creating csr with uri: %#v\n", uri)
@@ -132,51 +128,49 @@ func (mem *InMemoryKP) CreateCSR(subj pkix.Name, altNames []string) *x509.Certif
 		},
 		mem.PrivateKey)
 	if err != nil {
-		log.Fatal(err)
+		return []byte{}, err
 	}
 
-	csr, err := x509.ParseCertificateRequest(der)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	log.Printf("csr uri: %#v\n", csr.URIs)
-
-	return csr
+	return der, nil
 }
 
 // IssueCertificate takes in and signs CSR with the private key in the
 // InMemoryKP
-func (mem *InMemoryKP) IssueCertificate(certTemplate *x509.Certificate) *x509.Certificate {
-
-	der, err := x509.CreateCertificate(rand.Reader, certTemplate, mem.Certificate, certTemplate.PublicKey, mem.PrivateKey)
-	if err != nil {
-		log.Fatal(err)
+func (mem *InMemoryKP) IssueCertificate(csr *x509.CertificateRequest, isCA bool, isSelfSigned bool) ([]byte, error) {
+	var certTemplate *x509.Certificate
+	if isCA {
+		certTemplate = csrToCATemplate(csr)
+	} else {
+		certTemplate = csrToNonCATemplate(csr)
 	}
 
-	signedCert, err := x509.ParseCertificate(der)
-	if err != nil {
-		log.Fatal(err)
+	if isSelfSigned {
+		der, err := x509.CreateCertificate(rand.Reader, certTemplate, certTemplate, certTemplate.PublicKey, mem.PrivateKey)
+		if err != nil {
+			return []byte{}, err
+		}
+
+		return der, nil
+	} else {
+		der, err := x509.CreateCertificate(rand.Reader, certTemplate, mem.Certificate, certTemplate.PublicKey, mem.PrivateKey)
+		if err != nil {
+			return []byte{}, err
+		}
+
+		return der, nil
 	}
 
-	log.Printf("template uris: %#v\n", certTemplate.URIs)
-	log.Printf("signing uri: %#v\n", mem.GetCertificate().URIs)
-
-	log.Printf("signed certificate with uris: %#v\n", signedCert.URIs)
-
-	return signedCert
 }
 
-func (mem *InMemoryKP) TLSCertificate() tls.Certificate {
-	cert, err := tls.X509KeyPair(mem.CertificatePEM(), mem.KeyPEM())
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	return cert
+func (mem *InMemoryKP) TLSCertificate() (tls.Certificate, error) {
+	return tls.X509KeyPair(mem.CertificatePEM(), mem.KeyPEM())
 }
 
 func (mem *InMemoryKP) CertificatePEM() []byte {
+	if mem.Certificate == nil {
+		return []byte{}
+	}
+
 	return pem.EncodeToMemory(&pem.Block{
 		Type:  "CERTIFICATE",
 		Bytes: mem.Certificate.Raw,
@@ -210,8 +204,13 @@ func (mem *InMemoryKP) ChainPEM() [][]byte {
 
 func (mem *InMemoryKP) Base64Encode() string {
 	marshalled := inMemoryMarshaller{
-		Cert: string(mem.CertificatePEM()),
-		Key:  string(mem.KeyPEM()),
+		Cert:  string(mem.CertificatePEM()),
+		Key:   string(mem.KeyPEM()),
+		Chain: []string{},
+	}
+
+	for _, chainCert := range mem.ChainPEM() {
+		marshalled.Chain = append(marshalled.Chain, string(chainCert))
 	}
 
 	jsonKP, err := json.Marshal(marshalled)
@@ -238,15 +237,17 @@ func (mem *InMemoryKP) Base64Decode(b64String string) {
 	}
 
 	//log.Println("PEM Cert: ", unmarshalled.Cert)
-	certPEM, rest := pem.Decode([]byte(unmarshalled.Cert))
-	if len(rest) != 0 {
-		log.Println(string(rest))
-		log.Fatal("Did not pem decode all of certificate")
-	}
+	if unmarshalled.Cert != "" {
+		certPEM, rest := pem.Decode([]byte(unmarshalled.Cert))
+		if len(rest) != 0 {
+			log.Println(string(rest))
+			log.Fatal("Did not pem decode all of certificate")
+		}
 
-	mem.Certificate, err = x509.ParseCertificate(certPEM.Bytes)
-	if err != nil {
-		log.Fatal(err)
+		mem.Certificate, err = x509.ParseCertificate(certPEM.Bytes)
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
 
 	privPEM, rest := pem.Decode([]byte(unmarshalled.Key))

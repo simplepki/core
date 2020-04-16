@@ -1,6 +1,7 @@
 package keypair
 
 import (
+	"crypto/x509/pkix"
 	"testing"
 )
 
@@ -21,7 +22,10 @@ func TestYubikeySerial(t *testing.T) {
 		Serial: &serial,
 	}
 
-	kp, err := NewYubikeyKP(conf)
+	kp := &YubikeyKP{}
+	err := kp.New(&KeyPairConfig{
+		YubikeyConfig: conf,
+	})
 	if err != nil {
 		t.Fatal(err.Error())
 	}
@@ -35,11 +39,14 @@ func TestYubikeySerial(t *testing.T) {
 
 func TestYubikeyName(t *testing.T) {
 	name := "Yubico YubiKey OTP+FIDO+CCID 00 00"
-	conf :=  &YubikeyKeyPairConfig{
+	conf := &YubikeyKeyPairConfig{
 		Name: &name,
 	}
 
-	kp, err := NewYubikeyKP(conf)
+	kp := &YubikeyKP{}
+	err := kp.New(&KeyPairConfig{
+		YubikeyConfig: conf,
+	})
 	if err != nil {
 		t.Fatal(err.Error())
 	}
@@ -50,12 +57,14 @@ func TestYubikeyName(t *testing.T) {
 
 	kp.Yubikey.Close()
 }
-
 
 func TestYubikeyFirst(t *testing.T) {
-	conf :=  &YubikeyKeyPairConfig{}
+	conf := &YubikeyKeyPairConfig{}
 
-	kp, err := NewYubikeyKP(conf)
+	kp := &YubikeyKP{}
+	err := kp.New(&KeyPairConfig{
+		YubikeyConfig: conf,
+	})
 	if err != nil {
 		t.Fatal(err.Error())
 	}
@@ -67,14 +76,17 @@ func TestYubikeyFirst(t *testing.T) {
 	kp.Yubikey.Close()
 }
 
-
-func TestYubikeyCA(t *testing.T) {
+func TestYubikeyNewCA(t *testing.T) {
 	serial := uint32(7713152)
 	conf := &YubikeyKeyPairConfig{
 		Serial: &serial,
+		Reset:  true,
 	}
 
-	kp, err := NewYubikeyKP(conf)
+	kp := &YubikeyKP{}
+	err := kp.New(&KeyPairConfig{
+		YubikeyConfig: conf,
+	})
 	if err != nil {
 		t.Fatal(err.Error())
 	}
@@ -83,4 +95,19 @@ func TestYubikeyCA(t *testing.T) {
 		t.Fatal("returned kp is nil")
 	}
 
+	caCSR := kp.CreateCSR(pkix.Name{}, []string{})
+	caCertTemp := CsrToCACert(caCSR)
+
+	kp.importCert(caCertTemp)
+	/*caCert := kp.IssueCertificate(caCertTemp)
+	caPEM = pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: caCert.Raw,
+	})
+	err = kp.ImportCertificate(caPEM)
+	if err != nil {
+		t.Fatal(err.Error())
+	}*/
+
+	kp.Yubikey.Close()
 }

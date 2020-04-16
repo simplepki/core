@@ -5,7 +5,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/json"
-	"encoding/pem"
+	"errors"
 	"io/ioutil"
 	"log"
 	"os"
@@ -15,9 +15,7 @@ import (
 )
 
 type KeyPairFile struct {
-	Cert  string   `json:"cert"`
-	Key   string   `json:"key"`
-	Chain []string `json:"chain"`
+	Keypair string `json:"keypair`
 }
 
 type FileSystemKP struct {
@@ -61,23 +59,11 @@ func expandAndCheck(path string) (string, bool) {
 }
 
 // InMemoryKP Helpers
-func toFile(paths [] string, kp *InMemoryKP) error {
+func toFile(paths []string, kp *InMemoryKP) error {
 	for _, path := range paths {
 		fileContents := &KeyPairFile{
-			//Cert: string(kp.CertificatePEM()),
-			Key: string(kp.KeyPEM()),
+			Keypair: kp.Base64Encode(),
 		}
-
-		if kp.Certificate != nil {
-			fileContents.Cert = string(kp.CertificatePEM())
-		}
-
-		chainStrings := []string{}
-		for _, chainBytes := range kp.ChainPEM() {
-			chainStrings = append(chainStrings, string(chainBytes))
-		}
-
-		fileContents.Chain = chainStrings
 
 		jsonBytes, err := json.Marshal(fileContents)
 		if err != nil {
@@ -107,29 +93,7 @@ func fromFile(path string, config *FileSystemKeyPairConfig) (*InMemoryKP, error)
 		return nil, err
 	}
 
-	if kpFile.Cert != "" {
-		err = kp.ImportCertificate([]byte(kpFile.Cert))
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	chainBytes := [][]byte{}
-	for _, certString := range kpFile.Chain {
-		chainBytes = append(chainBytes, []byte(certString))
-	}
-	kp.ImportCertificateChain(chainBytes)
-	if err != nil {
-		return nil, err
-	}
-
-	keyPem, _ := pem.Decode([]byte(kpFile.Key))
-	key, err := x509.ParsePKCS1PrivateKey(keyPem.Bytes)
-	if err != nil {
-		return nil, err
-	}
-
-	kp.PrivateKey = key
+	kp.Base64Decode(kpFile.Keypair)
 
 	return kp, nil
 }
@@ -138,7 +102,7 @@ func (fs *FileSystemKP) New(config *KeyPairConfig) error {
 	expandedPaths := map[string]bool{}
 	oneExists := false
 
-	for _, path := range config.Location {
+	for _, path := range config.FileSystemConfig.Location {
 		basePath := path
 		if filepath.Ext(basePath) != ".pki" {
 			basePath = basePath + ".pki"
@@ -165,8 +129,8 @@ func (fs *FileSystemKP) New(config *KeyPairConfig) error {
 			return err
 		}
 
-		fs.KP  = memKP
-		fs.Config = config.FileSystemKeyPairConfig
+		fs.KP = memKP
+		fs.Config = config.FileSystemConfig
 		fs.Locations = []string{}
 
 		for path := range expandedPaths {
@@ -189,7 +153,7 @@ func (fs *FileSystemKP) Load(config *KeyPairConfig) error {
 	expandedPaths := map[string]bool{}
 	oneExists := false
 
-	for _, path := range config.Location {
+	for _, path := range config.FileSystemConfig.Location {
 		basePath := path
 		if filepath.Ext(basePath) != ".pki" {
 			basePath = basePath + ".pki"
@@ -217,9 +181,9 @@ func (fs *FileSystemKP) Load(config *KeyPairConfig) error {
 		}
 		// load it
 		log.Printf("pki file at path: %s\n", pathToUse)
-		kp, err := fromFile(pathToUse, config)
+		kp, err := fromFile(pathToUse, config.FileSystemConfig)
 		if err != nil {
-			return  err
+			return err
 		}
 		fs.KP = kp
 		// copy it to other locations
@@ -230,7 +194,7 @@ func (fs *FileSystemKP) Load(config *KeyPairConfig) error {
 				toFile([]string{path}, fs.KP)
 			}
 		}
-		return fsKP, nil
+		return nil
 	case false:
 		return errors.New("no pki available at any given paths")
 	}
@@ -246,28 +210,28 @@ func (fs *FileSystemKP) GetCertificateChain() []*x509.Certificate {
 	return fs.KP.GetCertificateChain()
 }
 
-func (fs *FileSystemKP) ImportCertificate(certBytes []byte) error {
-	return fs.KP.(certBytes)
+func (fs *FileSystemKP) ImportCertificate(derBytes []byte) error {
+	return fs.KP.ImportCertificate(derBytes)
 }
 
-func (fs *FileSystemKP) ImportCertificateChain(chainBytes [][]byte) error {
-	return fs.KP.ImportCertificateChain(chainBytes)
+func (fs *FileSystemKP) ImportCertificateChain(listDerBytes [][]byte) error {
+	return fs.KP.ImportCertificateChain(listDerBytes)
 }
 
-func (fs *FileSystemKP) CreateCSR(name pkix.Name, altNames []string) *x509.CertificateRequest {
+func (fs *FileSystemKP) CreateCSR(name pkix.Name, altNames []string) ([]byte, error) {
 	return fs.KP.CreateCSR(name, altNames)
 }
 
-func (fs *FileSystemKP) IssueCertificate(cert *x509.Certificate) *x509.Certificate {
-	return fs.KP.IssueCertificate(cert)
+func (fs *FileSystemKP) IssueCertificate(csr *x509.CertificateRequest, isCA bool, selfSign bool) ([]byte, error) {
+	return fs.KP.IssueCertificate(csr, isCA, selfSign)
 }
 
-func (fs *FileSystemKP) TLSCertificate() tls.Certificate {
+func (fs *FileSystemKP) TLSCertificate() (tls.Certificate, error) {
 	return fs.KP.TLSCertificate()
 }
 
 func (fs *FileSystemKP) Base64Encode() string {
-	return fs.KP.Base64Decode()
+	return fs.KP.Base64Encode()
 }
 
 func (fs *FileSystemKP) Base64Decode(b64String string) {
@@ -275,7 +239,7 @@ func (fs *FileSystemKP) Base64Decode(b64String string) {
 }
 
 func (fs *FileSystemKP) CertificatePEM() []byte {
-	return ks.KP.CertificatePEM()
+	return fs.KP.CertificatePEM()
 }
 
 func (fs *FileSystemKP) KeyPEM() []byte {
