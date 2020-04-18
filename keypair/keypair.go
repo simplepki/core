@@ -18,8 +18,8 @@ type KeyPairConfig struct {
 	KeyPairType      KeyPairType
 	InMemoryConfig   *InMemoryKeyPairConfig
 	FileSystemConfig *FileSystemKeyPairConfig
-	//YubikeyConfig    *YubikeyKeyPairConfig
-	CommonName string
+	YubikeyConfig    *YubikeyKeyPairConfig
+	CommonName       string
 }
 
 /*func NewKeyPair(config *KeyPairConfig) (KeyPair, error) {

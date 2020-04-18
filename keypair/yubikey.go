@@ -138,29 +138,35 @@ func getYubikey(config *YubikeyKeyPairConfig) (*piv.YubiKey, error) {
 }
 
 func (y *YubikeyKP) New(config *KeyPairConfig) error {
-	config.YubikeyConfig.parseAndGetDefaults()
+	if config.YubikeyConfig == nil {
+		y.Config = &YubikeyKeyPairConfig{}
+		y.Config.parseAndGetDefaults()
+	} else {
+		y.Config = config.YubikeyConfig
+		y.Config.parseAndGetDefaults()
+	}
+
 	var err error = nil
-	y.Yubikey, err = getYubikey(config.YubikeyConfig)
+	y.Yubikey, err = getYubikey(y.Config)
 	if err != nil {
 		return err
 	}
-	if config.YubikeyConfig != nil {
-		if config.YubikeyConfig.Reset {
-			if err := y.Yubikey.Reset(); err != nil {
-				log.Println("unable to reset yubikey")
-				return err
-			}
+
+	if y.Config.Reset {
+		if err := y.Yubikey.Reset(); err != nil {
+			log.Println("unable to reset yubikey")
+			return err
 		}
 	}
 
 	keyOpts := piv.Key{
-		Algorithm:   piv.AlgorithmRSA2048,
+		Algorithm:   piv.AlgorithmEC384,
 		PINPolicy:   piv.PINPolicyNever,
 		TouchPolicy: piv.TouchPolicyNever,
 	}
 
 	pub, err := y.Yubikey.GenerateKey(
-		config.YubikeyConfig.managementKey,
+		y.Config.managementKey,
 		piv.SlotAuthentication,
 		keyOpts)
 
@@ -182,7 +188,13 @@ func (y *YubikeyKP) New(config *KeyPairConfig) error {
 }
 
 func (y *YubikeyKP) GetCertificate() *x509.Certificate {
-	return nil
+	cert, err := y.Yubikey.Certificate(piv.SlotAuthentication)
+	if err != nil {
+		log.Warningln("unable to get yubikey certificate")
+		return nil
+	}
+
+	return cert
 }
 
 func (y *YubikeyKP) GetCertificateChain() []*x509.Certificate {
@@ -197,6 +209,8 @@ func (y *YubikeyKP) ImportCertificate(bytes []byte) error {
 		return err
 	}
 
+	log.Printf("kp: %#v\n", y)
+	log.Printf("management key: %#v\n", y.Config.managementKey)
 	err = y.Yubikey.SetCertificate(y.Config.managementKey, piv.SlotAuthentication, cert)
 	if err != nil {
 		return err
@@ -204,22 +218,14 @@ func (y *YubikeyKP) ImportCertificate(bytes []byte) error {
 	return nil
 }
 
-func (y *YubikeyKP) importCert(cert *x509.Certificate) {
-	log.Printf("import cert: %#v\n", *cert)
-	err := y.Yubikey.SetCertificate(y.Config.managementKey, piv.SlotAuthentication, cert)
-	if err != nil {
-		panic(err)
-	}
-}
-
 func (y *YubikeyKP) ImportCertificateChain(chainBytes [][]byte) error {
 	return nil
 }
 
-func (y *YubikeyKP) CreateCSR(subj pkix.Name, altNames []string) *x509.CertificateRequest {
+func (y *YubikeyKP) CreateCSR(subj pkix.Name, altNames []string) ([]byte, error) {
 	uri, err := url.Parse(subj.CommonName)
 	if err != nil {
-		log.Fatal("error parsing csr uri: ", err)
+		return []byte{}, err
 	}
 
 	log.Printf("creating csr with uri: %#v\n", uri)
@@ -254,42 +260,33 @@ func (y *YubikeyKP) CreateCSR(subj pkix.Name, altNames []string) *x509.Certifica
 		log.Fatal(err)
 	}
 
-	csr, err := x509.ParseCertificateRequest(der)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	log.Printf("csr uri: %#v\n", csr.URIs)
-
-	return csr
+	return der, err
 }
 
-func (y *YubikeyKP) IssueCertificate(inCert *x509.Certificate) *x509.Certificate {
-	yCert, err := y.Yubikey.Certificate(piv.SlotAuthentication)
-	if err != nil {
-		log.Printf(err.Error())
-		return nil
-	}
-	der, err := x509.CreateCertificate(rand.Reader, inCert, yCert, inCert.PublicKey, y.PrivKey)
-	if err != nil {
-		log.Fatal(err)
+func (y *YubikeyKP) IssueCertificate(csr *x509.CertificateRequest, isCA bool, selfSign bool) ([]byte, error) {
+	var certTemplate *x509.Certificate
+	if isCA {
+		certTemplate = csrToCATemplate(csr)
+	} else {
+		certTemplate = csrToNonCATemplate(csr)
 	}
 
-	signedCert, err := x509.ParseCertificate(der)
-	if err != nil {
-		log.Fatal(err)
+	if selfSign {
+		return x509.CreateCertificate(rand.Reader, certTemplate, certTemplate, certTemplate.PublicKey, y.PrivKey)
+	} else {
+		cert, err := y.Yubikey.Certificate(piv.SlotAuthentication)
+		if err != nil {
+			return []byte{}, err
+		}
+		return x509.CreateCertificate(rand.Reader, certTemplate, cert, certTemplate.PublicKey, y.PrivKey)
 	}
-
-	log.Printf("template uris: %#v\n", inCert.URIs)
-	log.Printf("signing uri: %#v\n", yCert.URIs)
-
-	log.Printf("signed certificate with uris: %#v\n", signedCert.URIs)
-
-	return signedCert
 }
 
-func (y *YubikeyKP) TLSCertificate() tls.Certificate {
-	return tls.Certificate{}
+func (y *YubikeyKP) TLSCertificate() (tls.Certificate, error) {
+	return tls.Certificate{
+		Certificate: [][]byte{y.GetCertificate().Raw},
+		PrivateKey:  y.PrivKey,
+	}, nil
 }
 
 func (y *YubikeyKP) Base64Encode() string {
