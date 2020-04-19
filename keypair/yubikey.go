@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/pem"
 	"errors"
 	"net"
 	"net/url"
@@ -21,6 +22,7 @@ type YubikeyKP struct {
 	Yubikey *piv.YubiKey
 	PubKey  crypto.PublicKey
 	PrivKey crypto.PrivateKey
+	Chain   []*x509.Certificate
 }
 
 type YubikeyKeyPairConfig struct {
@@ -32,6 +34,11 @@ type YubikeyKeyPairConfig struct {
 	PUK                 *string
 	Base64ManagementKey *string
 	managementKey       [24]byte
+}
+
+type yubikeyMarshaller struct {
+	Serial string
+	Chain  []string
 }
 
 func (y *YubikeyKeyPairConfig) parseAndGetDefaults() error {
@@ -187,6 +194,43 @@ func (y *YubikeyKP) New(config *KeyPairConfig) error {
 	return nil
 }
 
+func (y *YubikeyKP) Load(config *KeyPairConfig) error {
+	if config.YubikeyConfig == nil {
+		y.Config = &YubikeyKeyPairConfig{}
+		y.Config.parseAndGetDefaults()
+	} else {
+		y.Config = config.YubikeyConfig
+		y.Config.parseAndGetDefaults()
+	}
+
+	var err error = nil
+	y.Yubikey, err = getYubikey(y.Config)
+	if err != nil {
+		return err
+	}
+
+	cert, err := y.Yubikey.Certificate(piv.SlotAuthentication)
+	if err != nil {
+		return err
+	}
+
+	if cert == nil {
+		return errors.New("certificate provided is nil")
+	}
+
+	y.PubKey = cert.PublicKey
+
+	auth := piv.KeyAuth{PIN: *config.YubikeyConfig.PIN}
+	priv, err := y.Yubikey.PrivateKey(piv.SlotAuthentication, y.PubKey, auth)
+	if err != nil {
+		return err
+	}
+
+	y.PrivKey = priv
+
+	return nil
+}
+
 func (y *YubikeyKP) GetCertificate() *x509.Certificate {
 	cert, err := y.Yubikey.Certificate(piv.SlotAuthentication)
 	if err != nil {
@@ -296,7 +340,15 @@ func (y *YubikeyKP) Base64Encode() string {
 func (y *YubikeyKP) Base64Decode(certString string) {}
 
 func (y *YubikeyKP) CertificatePEM() []byte {
-	return []byte{}
+	cert := y.GetCertificate()
+	if cert == nil {
+		return []byte{}
+	} else {
+		return pem.EncodeToMemory(&pem.Block{
+			Type:  "CERTIFICATE",
+			Bytes: cert.Raw,
+		})
+	}
 }
 
 func (y *YubikeyKP) KeyPEM() []byte {
@@ -304,5 +356,15 @@ func (y *YubikeyKP) KeyPEM() []byte {
 }
 
 func (y *YubikeyKP) ChainPEM() [][]byte {
-	return [][]byte{}
+	chainBytes := [][]byte{}
+
+	for _, chainCert := range y.Chain {
+		chainBytes = append(chainBytes,
+			pem.EncodeToMemory(&pem.Block{
+				Type:  "CERTIFICATE",
+				Bytes: chainCert.Raw,
+			}))
+	}
+
+	return chainBytes
 }
