@@ -368,3 +368,7 @@ func (y *YubikeyKP) ChainPEM() [][]byte {
 
 	return chainBytes
 }
+
+func (y *YubikeyKP) Close() error {
+	return y.Yubikey.Close()
+}

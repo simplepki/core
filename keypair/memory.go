@@ -1,6 +1,9 @@
 package keypair
 
 import (
+	"crypto"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
@@ -18,9 +21,10 @@ import (
 )
 
 type InMemoryKP struct {
-	PrivateKey  *rsa.PrivateKey
-	Certificate *x509.Certificate
-	Chain       []*x509.Certificate
+	PrivateKey   crypto.PrivateKey
+	Certificate  *x509.Certificate
+	KeyAlgorithm Algorithm
+	Chain        []*x509.Certificate
 }
 
 type InMemoryKeyPairConfig struct{}
@@ -32,12 +36,34 @@ type inMemoryMarshaller struct {
 }
 
 func (mem *InMemoryKP) New(config *KeyPairConfig) error {
-	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		return err
+	mem.KeyAlgorithm = config.KeyAlgorithm
+	switch mem.KeyAlgorithm {
+	case AlgorithmEC256:
+		key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		if err != nil {
+			return err
+		}
+		mem.PrivateKey = key
+	case AlgorithmEC384:
+		key, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
+		if err != nil {
+			return err
+		}
+		mem.PrivateKey = key
+	case AlgorithmRSA2048:
+		privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+		if err != nil {
+			return err
+		}
+		mem.PrivateKey = privateKey
+	case AlgorithmRSA4096:
+		privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+		if err != nil {
+			return err
+		}
+		mem.PrivateKey = privateKey
 	}
 
-	mem.PrivateKey = privateKey
 	return nil
 }
 
@@ -178,14 +204,22 @@ func (mem *InMemoryKP) CertificatePEM() []byte {
 }
 
 func (mem *InMemoryKP) KeyPEM() []byte {
-	//keyBytes, err := x509.MarshalECPrivateKey(mem.PrivateKey)
-	keyBytes := x509.MarshalPKCS1PrivateKey(mem.PrivateKey)
-
-	return pem.EncodeToMemory(&pem.Block{
-		//Type:  "EC PRIVATE KEY",
-		Type:  "RSA PRIVATE KEY",
-		Bytes: keyBytes,
-	})
+	switch mem.KeyAlgorithm {
+	case AlgorithmEC384, AlgorithmEC256:
+		keyBytes, err := x509.MarshalECPrivateKey(mem.PrivateKey)
+		return pem.EncodeToMemory(&pem.Block{
+			Type:  "EC PRIVATE KEY",
+			Bytes: keyBytes,
+		})
+	case AlgorithmRSA4096, AlgorithmRSA2048:
+		keyBytes := x509.MarshalPKCS1PrivateKey(mem.PrivateKey)
+		return pem.EncodeToMemory(&pem.Block{
+			Type:  "RSA PRIVATE KEY",
+			Bytes: keyBytes,
+		})
+	default:
+		return []byte{}
+	}
 }
 
 func (mem *InMemoryKP) ChainPEM() [][]byte {
@@ -263,4 +297,8 @@ func (mem *InMemoryKP) Base64Decode(b64String string) {
 		log.Fatal(err)
 	}
 
+}
+
+func (m *InMemoryKP) Close() error {
+	return nil
 }

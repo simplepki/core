@@ -249,3 +249,7 @@ func (fs *FileSystemKP) KeyPEM() []byte {
 func (fs *FileSystemKP) ChainPEM() [][]byte {
 	return fs.KP.ChainPEM()
 }
+
+func (fs *FileSystemKP) Close() error {
+	return fs.KP.Close()
+}

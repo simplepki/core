@@ -14,15 +14,26 @@ const (
 	Yubikey
 )
 
+type Algorithm = uint8
+
+const (
+	AlgorithmEC384 Algortithm = iota
+	AlgorithmRSA4096
+	AlgorithmEC256
+	AlgorithmRSA2048
+)
+
 type KeyPairConfig struct {
 	KeyPairType      KeyPairType
+	KeyAlgorithm     Algorithm
 	InMemoryConfig   *InMemoryKeyPairConfig
 	FileSystemConfig *FileSystemKeyPairConfig
 	YubikeyConfig    *YubikeyKeyPairConfig
 	CommonName       string
+	AlternameNames   []string
 }
 
-/*func NewKeyPair(config *KeyPairConfig) (KeyPair, error) {
+func NewKeyPair(config *KeyPairConfig) (KeyPair, error) {
 	switch config.KeyPairType {
 	case InMemory:
 		kp := &InMemoryKP{}
@@ -33,16 +44,16 @@ type KeyPairConfig struct {
 		err := kp.New(config)
 		return kp, err
 	case Yubikey:
-	kp := &YubikeyKP{}
-	err := kp.New(config)
-	return kp, err
+		kp := &YubikeyKP{}
+		err := kp.New(config)
+		return kp, err
 	default:
 		return nil, nil
 
 	}
-}*/
+}
 
-/*func LoadKeyPair(config *KeyPairConfig) (KeyPair, error) {
+func LoadKeyPair(config *KeyPairConfig) (KeyPair, error) {
 	switch config.KeyPairType {
 	case InMemory:
 		kp := &InMemoryKP{}
@@ -60,7 +71,7 @@ type KeyPairConfig struct {
 		return nil, nil
 
 	}
-}*/
+}
 
 type KeyPair interface {
 	New(*KeyPairConfig) error
@@ -72,9 +83,8 @@ type KeyPair interface {
 	CreateCSR(pkix.Name, []string) (derCSR []byte, err error)
 	IssueCertificate(csr *x509.CertificateRequest, isCA bool, isSelfSigned bool) (derBytes []byte, err error)
 	TLSCertificate() (tls.Certificate, error)
-	Base64Encode() string
-	Base64Decode(string)
 	CertificatePEM() []byte
 	KeyPEM() []byte
 	ChainPEM() [][]byte
+	Close() error
 }
