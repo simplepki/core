@@ -9,8 +9,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"encoding/base64"
-	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"log"
@@ -236,7 +234,7 @@ func (mem *InMemoryKP) ChainPEM() [][]byte {
 	return chainBytes
 }
 
-func (mem *InMemoryKP) Base64Encode() string {
+/*func (mem *InMemoryKP) Base64Encode() string {
 	marshalled := inMemoryMarshaller{
 		Cert:  string(mem.CertificatePEM()),
 		Key:   string(mem.KeyPEM()),
@@ -297,8 +295,10 @@ func (mem *InMemoryKP) Base64Decode(b64String string) {
 		log.Fatal(err)
 	}
 
-}
+}*/
 
 func (m *InMemoryKP) Close() error {
+	m.PrivateKey = nil
+	m.Certificate = nil
 	return nil
 }
