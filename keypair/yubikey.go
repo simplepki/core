@@ -355,15 +355,15 @@ func (y *YubikeyKP) KeyPEM() []byte {
 	return []byte{}
 }
 
-func (y *YubikeyKP) ChainPEM() [][]byte {
-	chainBytes := [][]byte{}
+func (y *YubikeyKP) ChainPEM() []byte {
+	chainBytes := []byte{}
 
 	for _, chainCert := range y.Chain {
 		chainBytes = append(chainBytes,
 			pem.EncodeToMemory(&pem.Block{
 				Type:  "CERTIFICATE",
 				Bytes: chainCert.Raw,
-			}))
+			})...)
 	}
 
 	return chainBytes

@@ -134,15 +134,15 @@ func fromFile(config *FileSystemKeyPairConfig) (*InMemoryKP, error) {
 	}
 
 	chain := []*x509.Certificate{}
-	chainBytesLeft := true
 	restPEMBytes := chainPEMBytes
 	var currentBlock *pem.Block = nil
-	for chainBytesLeft {
+	for true {
 		currentBlock, restPEMBytes = pem.Decode(restPEMBytes)
-		if currentBlock != nil {
-			log.Println("no PEM block found in chain file")
+		if currentBlock == nil {
+			log.Println("no more PEM block found in chain file")
 			break
 		}
+		log.Println("parsing pem block in chain file")
 		chainCert, err := x509.ParseCertificate(currentBlock.Bytes)
 		if err != nil {
 			log.Printf("error parsing chain cert: %#v\n", err.Error())
@@ -157,105 +157,27 @@ func fromFile(config *FileSystemKeyPairConfig) (*InMemoryKP, error) {
 }
 
 func (fs *FileSystemKP) New(config *KeyPairConfig) error {
-	expandedPaths := map[string]bool{}
-	oneExists := false
-
-	for _, path := range config.FileSystemConfig.Location {
-		basePath := path
-		if filepath.Ext(basePath) != ".pki" {
-			basePath = basePath + ".pki"
-		}
-
-		expandedPath, exists := expandAndCheck(basePath)
-
-		expandedPaths[expandedPath] = exists
-		if exists {
-			oneExists = true
-		}
+	kp := &InMemoryKP{}
+	err := kp.New(config)
+	if err != nil {
+		return err
 	}
+	toFile(config.FileSystemConfig, kp)
 
-	log.Printf("creating kp from paths: %#v\n", expandedPaths)
-	switch oneExists {
-	case true:
-		return errors.New("simplepki file already exists in path given")
-	case false:
-		log.Println("creating new kp from scratch")
-		// create new KP and save it to all paths
-		memKP := &InMemoryKP{}
-		err := memKP.New(config)
-		if err != nil {
-			return err
-		}
-
-		fs.KP = memKP
-		fs.Config = config.FileSystemConfig
-		fs.Locations = []string{}
-
-		for path := range expandedPaths {
-			fs.Locations = append(fs.Locations, path)
-			err = toFile([]string{path}, fs.KP)
-			if err != nil {
-				return err
-			}
-		}
-
-		return nil
-	}
+	fs.KP = kp
+	fs.Config = config.FileSystemConfig
 
 	return nil
 }
 
 func (fs *FileSystemKP) Load(config *KeyPairConfig) error {
-	log.Println("loading filesystem kp")
-
-	expandedPaths := map[string]bool{}
-	oneExists := false
-
-	for _, path := range config.FileSystemConfig.Location {
-		basePath := path
-		if filepath.Ext(basePath) != ".pki" {
-			basePath = basePath + ".pki"
-		}
-
-		expandedPath, exists := expandAndCheck(basePath)
-
-		expandedPaths[expandedPath] = exists
-		if exists {
-			oneExists = true
-		}
-	}
-
-	log.Printf("creating kp from paths: %#v\n", expandedPaths)
-	switch oneExists {
-	case true:
-		log.Println("loading in kp from file")
-		// find the first one where the file exists
-		var pathToUse string
-		for path, exist := range expandedPaths {
-			if exist {
-				pathToUse = path
-				break
-			}
-		}
-		// load it
-		log.Printf("pki file at path: %s\n", pathToUse)
-		kp, err := fromFile(pathToUse, config.FileSystemConfig)
-		if err != nil {
-			return err
-		}
-		fs.KP = kp
-		// copy it to other locations
-		fs.Locations = []string{pathToUse}
-		for path := range expandedPaths {
-			if path != pathToUse {
-				fs.Locations = append(fs.Locations, path)
-				toFile([]string{path}, fs.KP)
-			}
-		}
+	kp, err := fromFile(config.FileSystemConfig)
+	if err != nil {
 		return nil
-	case false:
-		return errors.New("no pki available at any given paths")
 	}
+
+	fs.KP = kp
+	fs.Config = config.FileSystemConfig
 
 	return nil
 }
@@ -269,11 +191,20 @@ func (fs *FileSystemKP) GetCertificateChain() []*x509.Certificate {
 }
 
 func (fs *FileSystemKP) ImportCertificate(derBytes []byte) error {
-	return fs.KP.ImportCertificate(derBytes)
+	err := fs.KP.ImportCertificate(derBytes)
+	if err != nil {
+		return err
+	}
+	return toFile(fs.Config, fs.KP)
 }
 
 func (fs *FileSystemKP) ImportCertificateChain(listDerBytes [][]byte) error {
-	return fs.KP.ImportCertificateChain(listDerBytes)
+	err := fs.KP.ImportCertificateChain(listDerBytes)
+	if err != nil {
+		return err
+	}
+
+	return toFile(fs.Config, fs.KP)
 }
 
 func (fs *FileSystemKP) CreateCSR(name pkix.Name, altNames []string) ([]byte, error) {
@@ -288,14 +219,6 @@ func (fs *FileSystemKP) TLSCertificate() (tls.Certificate, error) {
 	return fs.KP.TLSCertificate()
 }
 
-func (fs *FileSystemKP) Base64Encode() string {
-	return fs.KP.Base64Encode()
-}
-
-func (fs *FileSystemKP) Base64Decode(b64String string) {
-	fs.KP.Base64Decode(b64String)
-}
-
 func (fs *FileSystemKP) CertificatePEM() []byte {
 	return fs.KP.CertificatePEM()
 }
@@ -304,10 +227,11 @@ func (fs *FileSystemKP) KeyPEM() []byte {
 	return fs.KP.KeyPEM()
 }
 
-func (fs *FileSystemKP) ChainPEM() [][]byte {
+func (fs *FileSystemKP) ChainPEM() []byte {
 	return fs.KP.ChainPEM()
 }
 
 func (fs *FileSystemKP) Close() error {
+	toFile(fs.Config, fs.KP)
 	return fs.KP.Close()
 }

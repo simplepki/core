@@ -10,7 +10,6 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
-	"errors"
 	"log"
 	"net"
 	"net/url"
@@ -93,17 +92,12 @@ func (mem *InMemoryKP) ImportCertificate(derBytes []byte) error {
 	return nil
 }
 
-// ImportCertificateChain takes a list of PEM encoded certificates, decodes them,
+// ImportCertificateChain takes a list of raw certificate bytes, parses them,
 // and adds them to the InMemoryKP to be used for generating TLS
-func (mem *InMemoryKP) ImportCertificateChain(pemList [][]byte) error {
+func (mem *InMemoryKP) ImportCertificateChain(derBytesList [][]byte) error {
 	mem.Chain = []*x509.Certificate{}
-	for _, pemBytes := range pemList {
-		block, _ := pem.Decode(pemBytes)
-		if block == nil || block.Type != "CERTIFICATE" {
-			return errors.New("Import fail for non-certificate pem")
-		}
-
-		cert, err := x509.ParseCertificate(block.Bytes)
+	for _, derBytes := range derBytesList {
+		cert, err := x509.ParseCertificate(derBytes)
 		if err != nil {
 			log.Println("Error parsing certificate: ", err.Error())
 			return err
@@ -204,13 +198,16 @@ func (mem *InMemoryKP) CertificatePEM() []byte {
 func (mem *InMemoryKP) KeyPEM() []byte {
 	switch mem.KeyAlgorithm {
 	case AlgorithmEC384, AlgorithmEC256:
-		keyBytes, err := x509.MarshalECPrivateKey(mem.PrivateKey)
+		keyBytes, err := x509.MarshalECPrivateKey(mem.PrivateKey.(*ecdsa.PrivateKey))
+		if err != nil {
+			log.Printf("error parsing key: %s\n", err.Error())
+		}
 		return pem.EncodeToMemory(&pem.Block{
 			Type:  "EC PRIVATE KEY",
 			Bytes: keyBytes,
 		})
 	case AlgorithmRSA4096, AlgorithmRSA2048:
-		keyBytes := x509.MarshalPKCS1PrivateKey(mem.PrivateKey)
+		keyBytes := x509.MarshalPKCS1PrivateKey(mem.PrivateKey.(*rsa.PrivateKey))
 		return pem.EncodeToMemory(&pem.Block{
 			Type:  "RSA PRIVATE KEY",
 			Bytes: keyBytes,
@@ -220,15 +217,15 @@ func (mem *InMemoryKP) KeyPEM() []byte {
 	}
 }
 
-func (mem *InMemoryKP) ChainPEM() [][]byte {
-	chainBytes := [][]byte{}
+func (mem *InMemoryKP) ChainPEM() []byte {
+	chainBytes := []byte{}
 
 	for _, chainCert := range mem.Chain {
 		chainBytes = append(chainBytes,
 			pem.EncodeToMemory(&pem.Block{
 				Type:  "CERTIFICATE",
 				Bytes: chainCert.Raw,
-			}))
+			})...)
 	}
 
 	return chainBytes

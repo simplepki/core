@@ -1,13 +1,18 @@
 package keypair
 
 import (
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"os"
+	"reflect"
 	"testing"
 )
 
 func TestToFile(t *testing.T) {
 	config := &FileSystemKeyPairConfig{
-		Location: []string{"/tmp/test1.pki"},
+		CertFile:  "/tmp/cert.pem",
+		KeyFile:   "/tmp/key.pem",
+		ChainFile: "/tmp/chain.pem",
 	}
 
 	kp := &FileSystemKP{}
@@ -19,17 +24,16 @@ func TestToFile(t *testing.T) {
 		t.Fatal(err.Error())
 	}
 
-	for _, file := range kp.Locations {
-		err = os.Remove(file)
-		if err != nil {
-			t.Log(err.Error())
-		}
-	}
+	os.Remove(config.CertFile)
+	os.Remove(config.KeyFile)
+	os.Remove(config.ChainFile)
 }
 
 func TestFromFile(t *testing.T) {
 	config := &FileSystemKeyPairConfig{
-		Location: []string{"/tmp/test2.pki"},
+		CertFile:  "/tmp/cert.pem",
+		KeyFile:   "/tmp/key.pem",
+		ChainFile: "/tmp/chain.pem",
 	}
 
 	metaConfig := &KeyPairConfig{
@@ -42,31 +46,47 @@ func TestFromFile(t *testing.T) {
 		t.Fatal(err.Error())
 	}
 
+	kp1CSRBytes, err := kp1.CreateCSR(pkix.Name{}, []string{})
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+
+	kp1CSR, err := x509.ParseCertificateRequest(kp1CSRBytes)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+
+	kp1CertBytes, err := kp1.IssueCertificate(kp1CSR, true, true)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+
+	err = kp1.ImportCertificate(kp1CertBytes)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+
+	err = kp1.ImportCertificateChain([][]byte{kp1CertBytes})
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+
 	kp2 := &FileSystemKP{}
 	err = kp2.Load(metaConfig)
 	if err != nil {
 		t.Fatal(err.Error())
 	}
 
-	if kp1.KP.PrivateKey.D.Cmp(kp2.KP.PrivateKey.D) != 0 {
+	if !reflect.DeepEqual(kp1, kp2) {
 		t.Fatal("key generated and saved was not loaded")
 	}
 
-	for _, file := range kp1.Locations {
-		err = os.Remove(file)
-		if err != nil {
-			t.Log(err.Error())
-		}
-	}
-
-	for _, file := range kp2.Locations {
-		err = os.Remove(file)
-		if err != nil {
-			t.Log(err.Error())
-		}
-	}
+	os.Remove(config.CertFile)
+	os.Remove(config.KeyFile)
+	os.Remove(config.ChainFile)
 }
 
+/*
 func TestMultipleToFile(t *testing.T) {
 	config := &FileSystemKeyPairConfig{
 		Location: []string{
@@ -91,3 +111,4 @@ func TestMultipleToFile(t *testing.T) {
 		}
 	}
 }
+*/

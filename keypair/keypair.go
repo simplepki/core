@@ -17,7 +17,7 @@ const (
 type Algorithm = uint8
 
 const (
-	AlgorithmEC384 Algortithm = iota
+	AlgorithmEC384 Algorithm = iota
 	AlgorithmRSA4096
 	AlgorithmEC256
 	AlgorithmRSA2048
@@ -85,6 +85,6 @@ type KeyPair interface {
 	TLSCertificate() (tls.Certificate, error)
 	CertificatePEM() []byte
 	KeyPEM() []byte
-	ChainPEM() [][]byte
+	ChainPEM() []byte
 	Close() error
 }
