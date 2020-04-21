@@ -3,45 +3,49 @@ package keypair
 import (
 	"crypto/tls"
 	"crypto/x509"
-
-	"crypto/x509/pkix"
 	"io/ioutil"
 	"net/http"
+
+	"crypto/x509/pkix"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
 
-func TestInMemoryKPAssertion(t *testing.T) {
-	inmem := NewInMemoryKP()
-	var kp  interface{} = inmem
-	_, ok := kp.(KeyPair)
-	if !ok {
-		t.Fatal("InMemoryKP doesnt fullfil KeyPair")
-	}
-}
-
 func TestNewInMemoryKP(t *testing.T) {
-	kp := NewInMemoryKP()
+	kp := &InMemoryKP{}
+	kp.New(nil)
 	t.Log("in memory kp: ", kp)
 
-	csr := kp.CreateCSR(pkix.Name{}, []string{})
+	csr, err := kp.CreateCSR(pkix.Name{}, []string{})
+	if err != nil {
+		t.Fatal(err.Error())
+	}
 	t.Log("in memory kp csr: ", csr)
 }
 
 func TestInMemorySelfSigned(t *testing.T) {
-	kp := NewInMemoryKP()
+	kp := &InMemoryKP{}
+	kp.New(nil)
 
-	csr := kp.CreateCSR(pkix.Name{}, []string{})
+	csrDer, err := kp.CreateCSR(pkix.Name{}, []string{})
+	if err != nil {
+		t.Fatal(err.Error())
+	}
 
-	cert := CsrToCACert(csr)
+	csrCert, err := x509.ParseCertificateRequest(csrDer)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
 
-	assert.Equal(t, true, cert.IsCA, "should be set to be a CA template")
-
-	kp.Certificate = cert
-
-	issuedCert := kp.IssueCertificate(cert)
-
+	issuedCertBytes, err := kp.IssueCertificate(csrCert, true, true)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+	issuedCert, err := x509.ParseCertificate(issuedCertBytes)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
 	kp.Certificate = issuedCert
 
 	assert.Equal(t, true, kp.Certificate.IsCA, "should be a ca certificate")
@@ -49,34 +53,82 @@ func TestInMemorySelfSigned(t *testing.T) {
 
 func TestInMemoryCA(t *testing.T) {
 	t.Log("generating ca")
-	ca := NewInMemoryKP()
-	caCsr := ca.CreateCSR(pkix.Name{}, []string{})
-	caCertTemp := CsrToCACert(caCsr)
-	ca.Certificate = caCertTemp
-	ca.IssueCertificate(caCertTemp)
-	assert.Equal(t, true, ca.Certificate.IsCA, "ca should be the ca")
+	ca := &InMemoryKP{}
+	ca.New(nil)
+	caCsrBytes, err := ca.CreateCSR(pkix.Name{}, []string{})
+	if err != nil {
+		t.Fatal(err.Error())
+	}
 
-	cert1 := NewInMemoryKP()
-	cert1Csr := cert1.CreateCSR(pkix.Name{}, []string{})
-	cert1Temp := CsrToCert(cert1Csr)
-	t.Log("cert1 kp and csr/template created")
+	caCSRCert, err := x509.ParseCertificateRequest(caCsrBytes)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+	issuedCertBytes, err := ca.IssueCertificate(caCSRCert, true, true)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
 
-	cert1.Certificate = ca.IssueCertificate(cert1Temp)
-	assert.Equal(t, false, cert1.Certificate.IsCA, "cert1 should not be a ca")
+	issuedCACert, err := x509.ParseCertificate(issuedCertBytes)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+	assert.Equal(t, true, issuedCACert.IsCA, "ca should be the ca")
+	err = ca.ImportCertificate(issuedCertBytes)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
 
-	err := cert1.Certificate.CheckSignatureFrom(ca.Certificate)
+	cert1 := &InMemoryKP{}
+	cert1.New(nil)
+	cert1CsrBytes, err := cert1.CreateCSR(pkix.Name{}, []string{})
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+
+	cert1CSR, err := x509.ParseCertificateRequest(cert1CsrBytes)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+
+	issuedCert1Bytes, err := ca.IssueCertificate(cert1CSR, false, false)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+
+	err = cert1.ImportCertificate(issuedCert1Bytes)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+
+	err = cert1.Certificate.CheckSignatureFrom(ca.Certificate)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	t.Log("verified cert1 signed by the ca")
 
-	cert2 := NewInMemoryKP()
-	cert2Csr := cert2.CreateCSR(pkix.Name{}, []string{})
-	cert2Temp := CsrToCert(cert2Csr)
-	t.Log("cert2 kp and csr/template created")
+	cert2 := &InMemoryKP{}
+	cert2.New(nil)
+	cert2CsrBytes, err := cert2.CreateCSR(pkix.Name{}, []string{})
+	if err != nil {
+		t.Fatal(err.Error())
+	}
 
-	cert2.Certificate = cert1.IssueCertificate(cert2Temp)
+	cert2CSR, err := x509.ParseCertificateRequest(cert2CsrBytes)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+
+	cert2Bytes, err := cert1.IssueCertificate(cert2CSR, false, false)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+
+	err = cert2.ImportCertificate(cert2Bytes)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
 	assert.Equal(t, false, cert1.Certificate.IsCA, "cert1 should not be a ca")
 	assert.Equal(t, false, cert2.Certificate.IsCA, "cert2 should not be a ca")
 	err = cert2.Certificate.CheckSignatureFrom(cert1.Certificate)
@@ -95,30 +147,78 @@ func TestInMemoryCA(t *testing.T) {
 }
 
 func TestInMemoryCAandIntermediate(t *testing.T) {
-	ca := NewInMemoryKP()
-	caCsr := ca.CreateCSR(pkix.Name{}, []string{})
-	caTemp := CsrToCACert(caCsr)
-	ca.Certificate = caTemp
-	ca.Certificate = ca.IssueCertificate(caTemp)
+	ca := &InMemoryKP{}
+	ca.New(nil)
+	caCsrBytes, err := ca.CreateCSR(pkix.Name{}, []string{})
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+
+	caCSR, err := x509.ParseCertificateRequest(caCsrBytes)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+	caCertBytes, err := ca.IssueCertificate(caCSR, true, true)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+
+	err = ca.ImportCertificate(caCertBytes)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
 	t.Log("in memory ca created")
 
-	inter := NewInMemoryKP()
-	interCsr := inter.CreateCSR(pkix.Name{}, []string{})
-	interTemp := CsrToCACert(interCsr)
-	inter.Certificate = ca.IssueCertificate(interTemp)
+	inter := &InMemoryKP{}
+	inter.New(nil)
+	interCsrBytes, err := inter.CreateCSR(pkix.Name{}, []string{})
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+
+	interCSR, err := x509.ParseCertificateRequest(interCsrBytes)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+	interCertBytes, err := ca.IssueCertificate(interCSR, true, false)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+
+	err = inter.ImportCertificate(interCertBytes)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
 	t.Log("in memory intermediate ca created")
 
-	err := inter.Certificate.CheckSignatureFrom(ca.Certificate)
+	err = inter.Certificate.CheckSignatureFrom(ca.Certificate)
 	if err == nil {
 		t.Log("intermediate properly signed by ca")
 	} else {
 		t.Fatal("intermediate not properly signed by ca: ", err)
 	}
 
-	cert1 := NewInMemoryKP()
-	cert1Csr := cert1.CreateCSR(pkix.Name{}, []string{})
-	cert1Temp := CsrToCert(cert1Csr)
-	cert1.Certificate = inter.IssueCertificate(cert1Temp)
+	cert1 := &InMemoryKP{}
+	cert1.New(nil)
+	cert1CSRBytes, err := cert1.CreateCSR(pkix.Name{}, []string{})
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+
+	cert1CSR, err := x509.ParseCertificateRequest(cert1CSRBytes)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+
+	cert1Bytes, err := inter.IssueCertificate(cert1CSR, false, false)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+
+	err = cert1.ImportCertificate(cert1Bytes)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
 	t.Log("cert1 signed by intermediate ca")
 
 	err = cert1.Certificate.CheckSignatureFrom(inter.Certificate)
@@ -150,32 +250,80 @@ func TestInMemoryCAandIntermediate(t *testing.T) {
 }
 
 func TestInMemoryMTLS(t *testing.T) {
-	ca := NewInMemoryKP()
+	ca := &InMemoryKP{}
+	ca.New(nil)
 	caName := pkix.Name{
 		CommonName: "test-ca",
 	}
-	caCsr := ca.CreateCSR(caName, []string{"ca.localhost"})
-	caTemp := CsrToCACert(caCsr)
-	ca.Certificate = caTemp
-	ca.Certificate = ca.IssueCertificate(caTemp)
+	caCsrBytes, err := ca.CreateCSR(caName, []string{"ca.localhost"})
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+
+	caCSR, err := x509.ParseCertificateRequest(caCsrBytes)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+	caCertBytes, err := ca.IssueCertificate(caCSR, true, true)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+
+	err = ca.ImportCertificate(caCertBytes)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
 	t.Log("in memory ca created")
 
-	clientCert := NewInMemoryKP()
+	clientCert := &InMemoryKP{}
+	clientCert.New(nil)
 	clientName := pkix.Name{
 		CommonName: "test-client",
 	}
-	clientCsr := clientCert.CreateCSR(clientName, []string{"client.local"})
-	clientTemp := CsrToCert(clientCsr)
-	clientCert.Certificate = ca.IssueCertificate(clientTemp)
+	clientCsrBytes, err := clientCert.CreateCSR(clientName, []string{"client.local"})
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+
+	clientCSR, err := x509.ParseCertificateRequest(clientCsrBytes)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+	clientCertBytes, err := ca.IssueCertificate(clientCSR, false, false)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+
+	err = clientCert.ImportCertificate(clientCertBytes)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
 	t.Log("in memory client cert created")
 
-	serverCert := NewInMemoryKP()
+	serverCert := &InMemoryKP{}
+	serverCert.New(nil)
 	serverName := pkix.Name{
 		CommonName: "localhost",
 	}
-	serverCsr := serverCert.CreateCSR(serverName, []string{"localhost", "127.0.0.1"})
-	serverTemp := CsrToCert(serverCsr)
-	serverCert.Certificate = ca.IssueCertificate(serverTemp)
+	serverCsrBytes, err := serverCert.CreateCSR(serverName, []string{"localhost", "127.0.0.1"})
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+
+	serverCSR, err := x509.ParseCertificateRequest(serverCsrBytes)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+
+	serverCertBytes, err := ca.IssueCertificate(serverCSR, false, false)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+
+	err = serverCert.ImportCertificate(serverCertBytes)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
 	t.Log("in memory server cert created")
 
 	rootPool := x509.NewCertPool()
@@ -190,13 +338,17 @@ func TestInMemoryMTLS(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", handler)
 
+	serverTLS, err := serverCert.TLSCertificate()
+	if err != nil {
+		t.Fatal(err.Error())
+	}
 	servertls := &tls.Config{
 		ClientAuth:               tls.RequireAndVerifyClientCert,
 		ClientCAs:                rootPool,
 		MinVersion:               tls.VersionTLS12,
 		PreferServerCipherSuites: true,
 		RootCAs:                  rootPool,
-		Certificates:             []tls.Certificate{serverCert.TLSCertificate()},
+		Certificates:             []tls.Certificate{serverTLS},
 		InsecureSkipVerify:       false,
 	}
 
@@ -216,8 +368,12 @@ func TestInMemoryMTLS(t *testing.T) {
 	defer srv.Close()
 	t.Log("server running")
 
+	clientTLS, err := clientCert.TLSCertificate()
+	if err != nil {
+		t.Fatal(err.Error())
+	}
 	clienttls := &tls.Config{
-		Certificates: []tls.Certificate{clientCert.TLSCertificate()},
+		Certificates: []tls.Certificate{clientTLS},
 		RootCAs:      rootPool,
 	}
 	clienttls.BuildNameToCertificate()
@@ -261,21 +417,50 @@ func TestInMemoryMTLS(t *testing.T) {
 }
 
 func TestB64Marshalling(t *testing.T) {
-	ca := NewInMemoryKP()
+	ca := &InMemoryKP{}
+	ca.New(nil)
 	caName := pkix.Name{
 		CommonName: "test-ca",
 	}
-	caCsr := ca.CreateCSR(caName, []string{"ca.localhost"})
-	caTemp := CsrToCACert(caCsr)
-	ca.Certificate = caTemp
-	ca.Certificate = ca.IssueCertificate(caTemp)
+	caCsrBytes, err := ca.CreateCSR(caName, []string{"ca.localhost"})
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+
+	caCSR, err := x509.ParseCertificateRequest(caCsrBytes)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+	caCertBytes, err := ca.IssueCertificate(caCSR, true, true)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+
+	err = ca.ImportCertificate(caCertBytes)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
 	t.Log("in memory ca created")
 
-	kp := NewInMemoryKP()
-	csr := kp.CreateCSR(pkix.Name{}, []string{})
-	kpCert := CsrToCert(csr)
-	kp.Certificate = ca.IssueCertificate(kpCert)
+	kp := InMemoryKP{}
+	kp.New(nil)
+	csrBytes, err := kp.CreateCSR(pkix.Name{}, []string{})
+	if err != nil {
+		t.Fatal(err.Error())
+	}
 
+	csr, err := x509.ParseCertificateRequest(csrBytes)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+	certBytes, err := ca.IssueCertificate(csr, false, false)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+	err = kp.ImportCertificate(certBytes)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
 	t.Log("marshalling into b64 string")
 	b64KP := kp.Base64Encode()
 	t.Log("marshalled b64 string")
@@ -290,5 +475,4 @@ func TestB64Marshalling(t *testing.T) {
 
 	assert.Equal(t, kp.CertificatePEM(), kpTest.CertificatePEM(), "cert pem should be the same")
 	assert.Equal(t, kp.KeyPEM(), kpTest.KeyPEM(), "key pem should be the same")
-
 }

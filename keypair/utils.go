@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-func CsrToCert(csr *x509.CertificateRequest) *x509.Certificate {
+func csrToNonCATemplate(csr *x509.CertificateRequest) *x509.Certificate {
 	return &x509.Certificate{
 		Subject:               csr.Subject,
 		PublicKey:             csr.PublicKey,
@@ -24,11 +24,11 @@ func CsrToCert(csr *x509.CertificateRequest) *x509.Certificate {
 		IsCA:                  false,
 		NotBefore:             time.Now(),
 		NotAfter:              time.Now().Add(2 * time.Hour),
-		URIs: csr.URIs,
+		URIs:                  csr.URIs,
 	}
 }
 
-func CsrToCACert(csr *x509.CertificateRequest) *x509.Certificate {
+func csrToCATemplate(csr *x509.CertificateRequest) *x509.Certificate {
 	return &x509.Certificate{
 		Subject:               csr.Subject,
 		PublicKey:             csr.PublicKey,
@@ -43,7 +43,7 @@ func CsrToCACert(csr *x509.CertificateRequest) *x509.Certificate {
 		IsCA:                  true,
 		NotBefore:             time.Now(),
 		NotAfter:              time.Now().Add(2 * time.Hour),
-		URIs: csr.URIs,
+		URIs:                  csr.URIs,
 	}
 }
 
